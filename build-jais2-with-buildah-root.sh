@@ -1,19 +1,18 @@
 #!/bin/bash
 
-# Buildah Build Script for JAIS2 Dockerfile
-# This script uses buildah to build the JAIS2 Dockerfile and push to repository
+# Buildah Build Script for JAIS2 Dockerfile (Root/Privileged Version)
+# This script uses buildah with root privileges to handle container permission issues
 
 set -e
 
 echo "============================================"
-echo "Building JAIS2 Dockerfile with Buildah"
+echo "Building JAIS2 Dockerfile with Buildah (Root/Privileged)"
 echo "============================================"
 
 # Configuration
 REGISTRY="${DOCKER_REGISTRY:-docker.io/nikolasth90/}"
 IMAGE_NAME="${IMAGE_NAME:-vllm-universal}"
 TAG="${TAG:-latest}"
-FULL_IMAGE_NAME="${REGISTRY}${IMAGE_NAME}:jais2-${TAG}"
 
 # Allow command line overrides
 while [[ $# -gt 0 ]]; do
@@ -39,13 +38,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -n, --name NAME            Image name (default: vllm-universal)"
             echo "  -h, --help                 Show this help"
             echo ""
-            echo "Environment Variables:"
-            echo "  DOCKER_REGISTRY            Registry prefix"
-            echo "  IMAGE_NAME                 Base image name"
-            echo "  TAG                        Tag suffix"
-            echo ""
-            echo "Example:"
-            echo "  $0 -r myregistry.com/ -t v1.0 -n myjais-image"
+            echo "This version runs with root privileges to handle container permission issues."
             exit 0
             ;;
         *)
@@ -56,7 +49,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Update full image name with potential changes
 FULL_IMAGE_NAME="${REGISTRY}${IMAGE_NAME}:jais2-${TAG}"
 
 echo "🔧 Build Configuration:"
@@ -64,6 +56,7 @@ echo "  • Registry: $REGISTRY"
 echo "  • Image Name: $IMAGE_NAME"
 echo "  • Tag: jais2-$TAG"
 echo "  • Full Image: $FULL_IMAGE_NAME"
+echo "  • Mode: Root/Privileged"
 echo ""
 
 # Function to check if buildah is available
@@ -73,6 +66,8 @@ check_buildah() {
         echo ""
         echo "To install buildah, run:"
         echo "  sudo ./install-buildah-container.sh"
+        echo "  or"
+        echo "  sudo ./install-buildah-ubuntu.sh"
         echo ""
         exit 1
     fi
@@ -80,59 +75,34 @@ check_buildah() {
     echo "✅ Buildah is available: $(buildah --version)"
 }
 
-# Function to configure buildah environment
-configure_buildah() {
-    echo "🔧 Configuring buildah for container environment..."
+# Function to configure buildah for root/privileged operation
+configure_buildah_root() {
+    echo "🔧 Configuring buildah for root/privileged operation..."
     
-    # Detect if we're in a container
-    if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
-        echo "🐳 Container environment detected, using rootless configuration..."
-        
-        # Set environment variables for buildah in container
-        export BUILDAH_ISOLATION=chroot
-        export BUILDAH_FORMAT=docker
-        export BUILDAH_LAYERS_CACHE_DIR="/tmp/buildah-cache"
-        export STORAGE_DRIVER="overlay"
-        export REGISTRIES_CONFIG_PATH="/etc/containers/registries.conf"
-        export STORAGE_CONFIG_PATH="/etc/containers/storage.conf"
-        
-        # Use alternative policies for containers
-        export BUILDAH_POLICY_PATH="/etc/containers/policy.json"
-        
-        # Create configuration that works in containers
-        sudo mkdir -p /var/lib/containers/storage
-        sudo mkdir -p /var/run/containers/storage
-        mkdir -p "$BUILDAH_LAYERS_CACHE_DIR"
-        
-        # Set permissions
-        sudo chmod 755 /var/lib/containers/storage 2>/dev/null || true
-        sudo chmod 755 /var/run/containers/storage 2>/dev/null || true
-        chmod 755 "$BUILDAH_LAYERS_CACHE_DIR"
-        
-        echo "✅ Buildah container environment configured"
-    else
-        echo "🖥️  Standard environment detected, using default configuration..."
-        
-        # Set environment variables for buildah
-        export BUILDAH_ISOLATION=chroot
-        export BUILDAH_FORMAT=docker
-        export BUILDAH_LAYERS_CACHE_DIR="/tmp/buildah-cache"
-        export STORAGE_DRIVER="overlay"
-        export REGISTRIES_CONFIG_PATH="/etc/containers/registries.conf"
-        export STORAGE_CONFIG_PATH="/etc/containers/storage.conf"
-        
-        # Create necessary directories
-        mkdir -p /var/lib/containers/storage
-        mkdir -p /var/run/containers/storage
-        mkdir -p "$BUILDAH_LAYERS_CACHE_DIR"
-        
-        # Set permissions
-        chmod 755 /var/lib/containers/storage 2>/dev/null || true
-        chmod 755 /var/run/containers/storage 2>/dev/null || true
-        chmod 755 "$BUILDAH_LAYERS_CACHE_DIR"
-        
-        echo "✅ Buildah standard environment configured"
-    fi
+    # Set environment variables for privileged buildah
+    export BUILDAH_ISOLATION=chroot
+    export BUILDAH_FORMAT=docker
+    export BUILDAH_LAYERS_CACHE_DIR="/tmp/buildah-cache"
+    export STORAGE_DRIVER="overlay"
+    export REGISTRIES_CONFIG_PATH="/etc/containers/registries.conf"
+    export STORAGE_CONFIG_PATH="/etc/containers/storage.conf"
+    
+    # Disable user namespace handling
+    export _BUILDAH_STARTED_IN_USERNS=""
+    
+    # Create necessary directories with proper permissions
+    sudo mkdir -p /var/lib/containers/storage
+    sudo mkdir -p /var/run/containers/storage
+    mkdir -p "$BUILDAH_LAYERS_CACHE_DIR"
+    
+    # Set ownership and permissions
+    sudo chown root:root /var/lib/containers/storage 2>/dev/null || true
+    sudo chown root:root /var/run/containers/storage 2>/dev/null || true
+    sudo chmod 755 /var/lib/containers/storage 2>/dev/null || true
+    sudo chmod 755 /var/run/containers/storage 2>/dev/null || true
+    chmod 755 "$BUILDAH_LAYERS_CACHE_DIR"
+    
+    echo "✅ Buildah root environment configured"
 }
 
 # Function to validate Dockerfile
@@ -154,53 +124,65 @@ validate_dockerfile() {
     echo "---"
 }
 
-# Function to build image with buildah
-build_image() {
+# Function to build image with buildah (root version)
+build_image_root() {
     local dockerfile="Dockerfile-jais2"
-    local buildah_args=()
     
-    echo "🏗️  Building JAIS2 image with buildah..."
+    echo "🏗️  Building JAIS2 image with buildah (root mode)..."
     echo "Image: $FULL_IMAGE_NAME"
     echo "Dockerfile: $dockerfile"
     echo ""
     
-    # Base arguments
-    buildah_args=(
+    # Build arguments for root mode
+    local buildah_args=(
         --format=docker
         --tls-verify=false
         --storage-driver=overlay
         --file "$dockerfile"
         --tag "$FULL_IMAGE_NAME"
         --no-cache
+        --userns= host
+        --isolation=chroot
+        --runtime=runc
+        --squash  # Reduce layer size
     )
     
-    # Add container-specific arguments
-    if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
-        echo "🐳 Using container-specific build flags..."
-        buildah_args+=(
-            --userns ""
-            --isolation=chroot
-            --runtime=runc
-        )
-        
-        # Try to build with root permissions if needed
-        echo "🔧 Attempting build with adjusted permissions..."
-    fi
+    # Try different approaches if needed
+    echo "🔧 Attempting build with root privileges..."
+    echo "Command: buildah bud ${buildah_args[*]} ."
     
-    # Build the image using buildah
-    echo "Running: buildah bud ${buildah_args[*]} ."
-    
-    if buildah bud "${buildah_args[@]}" .; then
+    if buildah bud "${buildah_args[@]}" . 2>&1; then
         echo "✅ Build completed successfully: $FULL_IMAGE_NAME"
-    else
-        echo "❌ Build failed: $FULL_IMAGE_NAME"
-        echo ""
-        echo "🔧 Troubleshooting tips:"
-        echo "  • If you're in a container, ensure it was started with --privileged"
-        echo "  • Or try running with: sudo ./build-jais2-with-buildah.sh"
-        echo "  • Check that your container supports user namespaces"
-        exit 1
+        return 0
     fi
+    
+    echo "⚠️  First attempt failed, trying alternative approach..."
+    
+    # Alternative approach without user namespace
+    local alt_args=(
+        --format=docker
+        --tls-verify=false
+        --storage-driver=overlay
+        --file "$dockerfile"
+        --tag "$FULL_IMAGE_NAME"
+        --no-cache
+        --isolation=chroot
+    )
+    
+    echo "Command: buildah bud ${alt_args[*]} ."
+    
+    if buildah bud "${alt_args[@]}" . 2>&1; then
+        echo "✅ Build completed successfully (alternative method): $FULL_IMAGE_NAME"
+        return 0
+    fi
+    
+    echo "❌ Build failed: $FULL_IMAGE_NAME"
+    echo ""
+    echo "🔧 Additional troubleshooting:"
+    echo "  • Ensure container was started with --privileged flag"
+    echo "  • Check if /proc/sys/user/max_user_namespaces allows sufficient namespaces"
+    echo "  • Try running outside container if possible"
+    exit 1
 }
 
 # Function to inspect built image
@@ -210,32 +192,34 @@ inspect_image() {
     
     echo ""
     echo "📊 Image details:"
-    buildah inspect "$FULL_IMAGE_NAME" | jq -r '
-        "  • ID: " + .FromImageID,
-        "  • Created: " + .Created,
-        "  • Architecture: " + .Architecture,
-        "  • OS: " + .Os,
-        "  • Size: " + (.Size | tostring) + " bytes"
-    ' 2>/dev/null || echo "  • JSON inspection not available (jq missing)"
+    if command -v jq >/dev/null 2>&1; then
+        buildah inspect "$FULL_IMAGE_NAME" | jq -r '
+            "  • ID: " + .FromImageID,
+            "  • Created: " + .Created,
+            "  • Architecture: " + .Architecture,
+            "  • OS: " + .Os,
+            "  • Size: " + (.Size | tostring) + " bytes"
+        ' 2>/dev/null || echo "  • JSON inspection available with jq"
+    else
+        echo "  • Run 'buildah inspect $FULL_IMAGE_NAME' for details"
+    fi
 }
 
 # Function to push image to registry
 push_image() {
     echo "🚀 Pushing image to registry..."
     
-    # Check if we're pushing to a real registry (not just local)
+    # Check if we're pushing to a real registry
     if [[ "$REGISTRY" == "docker.io/nikolasth90/" ]] || [[ "$REGISTRY" == *".com/" ]] || [[ "$REGISTRY" == *".io/" ]]; then
         echo "Registry detected: $REGISTRY"
         echo "🔑 Please ensure you're authenticated to the registry"
         
         # Try to push with buildah
-        buildah push \
+        if buildah push \
             --tls-verify=false \
             --storage-driver=overlay \
             "$FULL_IMAGE_NAME" \
-            "docker://$FULL_IMAGE_NAME"
-        
-        if [ $? -eq 0 ]; then
+            "docker://$FULL_IMAGE_NAME" 2>&1; then
             echo "✅ Push completed successfully: $FULL_IMAGE_NAME"
         else
             echo "❌ Push failed: $FULL_IMAGE_NAME"
@@ -258,7 +242,7 @@ push_image() {
 show_usage() {
     echo ""
     echo "============================================"
-    echo "✅ JAIS2 Build Process Complete!"
+    echo "✅ JAIS2 Build Process Complete (Root Mode)!"
     echo "============================================"
     echo ""
     echo "🚀 Built Image: $FULL_IMAGE_NAME"
@@ -286,20 +270,24 @@ show_usage() {
     echo "  • VLLM_GPU_UTIL - GPU utilization (default: 0.95)"
     echo "  • VLLM_MAX_MODEL_LEN - Maximum model length (default: 8192)"
     echo ""
+    echo "🔑 Root Mode Notes:"
+    echo "  • This script used root privileges to handle container permission issues"
+    echo "  • For non-privileged environments, use: ./build-jais2-with-buildah.sh"
+    echo "  • Container should be started with --privileged for best compatibility"
 }
 
 # Main execution
 main() {
-    echo "Starting JAIS2 build process with buildah..."
+    echo "Starting JAIS2 build process with buildah (root mode)..."
     echo ""
     
     # Check prerequisites
     check_buildah
-    configure_buildah
+    configure_buildah_root
     validate_dockerfile
     
     # Build the image
-    build_image
+    build_image_root
     inspect_image
     
     # Push to registry
@@ -311,6 +299,13 @@ main() {
 
 # Handle script interruption
 trap 'echo ""; echo "❌ Build interrupted"; exit 1' INT TERM
+
+# Check if running as root or with sudo
+if [ "$EUID" -ne 0 ]; then
+    echo "⚠️  This script requires root privileges"
+    echo "   Running with sudo..."
+    exec sudo "$0" "$@"
+fi
 
 # Run main function
 main "$@"

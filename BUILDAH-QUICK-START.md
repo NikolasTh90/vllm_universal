@@ -26,12 +26,22 @@ sudo ./install-buildah-container.sh
 
 ### 3. Build the JAIS2 Image
 
+**Standard Build (for environments with proper user namespace support):**
 ```bash
 # Build with default settings (docker.io/nikolasth90/vllm-universal:jais2-latest)
 ./build-jais2-with-buildah.sh
 
 # Or with custom registry and tag
 ./build-jais2-with-buildah.sh -r myregistry.com/ -t v1.0 -n myjais-image
+```
+
+**Root/Privileged Build (for containers with permission issues):**
+```bash
+# If you get "Operation not permitted" errors, use the root version
+./build-jais2-with-buildah-root.sh
+
+# Or with custom settings
+sudo ./build-jais2-with-buildah-root.sh -r myregistry.com/ -t v1.0 -n myjais-image
 ```
 
 ## 📋 Detailed Instructions
