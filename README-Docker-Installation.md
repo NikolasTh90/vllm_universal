@@ -1,6 +1,13 @@
 # Docker Installation with Performance Optimization for Ubuntu 24.04
 
-This guide provides a comprehensive Docker installation script specifically designed for Ubuntu 24.04 with performance-enhancing plugins and optimizations that significantly speed up Docker builds and operations.
+This guide provides comprehensive Docker installation scripts with performance-enhancing plugins and optimizations that significantly speed up Docker builds and operations. Two versions are available:
+
+1. **Standard Installation** - For full Ubuntu systems with systemd
+2. **Container Installation** - For Docker-in-Docker and Kubernetes environments
+
+## 🐳 Container Environment Support
+
+The standard script now detects if you're running in a container/kubernetes pod and provides appropriate handling or suggests using the container-specific script.
 
 ## 🚀 Features
 

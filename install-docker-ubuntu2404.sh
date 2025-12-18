@@ -2,8 +2,23 @@
 
 # Docker Installation Script for Ubuntu 24.04 with Performance Optimization Plugins
 # This script installs Docker with plugins and configurations to significantly speed up builds
+# Note: This script is designed for full Ubuntu systems, not containers/kubernetes pods
 
 set -e
+
+# Check if running in a container/kubernetes pod
+if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
+    echo "WARNING: This script appears to be running inside a container/kubernetes pod."
+    echo "Docker-in-Docker setups require different configuration."
+    echo "This script is designed for full Ubuntu systems with systemd."
+    echo ""
+    read -p "Do you want to continue anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Installation cancelled."
+        exit 1
+    fi
+fi
 
 echo "============================================"
 echo "Installing Docker with performance optimization plugins for Ubuntu 24.04"
@@ -26,6 +41,10 @@ sudo apt-get install -y \
 # Add Docker's official GPG key
 echo "Adding Docker's official GPG key..."
 sudo mkdir -p /etc/apt/keyrings
+if [ -f "/etc/apt/keyrings/docker.gpg" ]; then
+    echo "Docker GPG key already exists, updating..."
+    sudo rm -f /etc/apt/keyrings/docker.gpg
+fi
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
 # Set up the Docker repository
@@ -53,11 +72,12 @@ echo "Adding current user to docker group..."
 if [ -n "$SUDO_USER" ]; then
     sudo usermod -aG docker $SUDO_USER
     echo "Added user '$SUDO_USER' to docker group"
-elif [ -n "$USER" ]; then
+elif [ -n "$USER" ] && [ "$USER" != "root" ]; then
     sudo usermod -aG docker $USER
     echo "Added user '$USER' to docker group"
 else
     echo "Warning: Could not determine username to add to docker group"
+    echo "Note: In container environments, Docker group addition may not be applicable"
 fi
 
 # Configure Docker for optimal performance
@@ -121,15 +141,20 @@ sudo tee /etc/buildkit/buildkitd.toml > /dev/null <<EOF
   mirrors = ["https://quay.io-mirror"]
 EOF
 
-# Enable and start Docker service
-echo "Enabling and starting Docker service..."
-sudo systemctl enable docker
-sudo systemctl restart docker
+# Enable and start Docker service (skip if running in container)
+if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+    echo "Enabling and starting Docker service..."
+    sudo systemctl enable docker
+    sudo systemctl restart docker
 
-# Enable BuildKit
-echo "Enabling Docker BuildKit..."
-sudo systemctl enable buildkit
-sudo systemctl restart buildkit 2>/dev/null || echo "BuildKit service not found, will use built-in BuildKit"
+    # Enable BuildKit
+    echo "Enabling Docker BuildKit..."
+    sudo systemctl enable buildkit
+    sudo systemctl restart buildkit 2>/dev/null || echo "BuildKit service not found, will use built-in BuildKit"
+else
+    echo "Systemd not available (running in container). Skipping service management."
+    echo "Docker configuration files have been created and will be used when Docker starts."
+fi
 
 # Install additional performance optimization tools
 echo "Installing additional performance optimization tools..."
@@ -171,8 +196,15 @@ vm.dirty_ratio = 15
 vm.dirty_background_ratio = 5
 EOF
 
-# Apply system settings
-sudo sysctl -p /etc/sysctl.d/99-docker.conf
+# Apply system settings (skip if not available or in container)
+if [ -f /etc/sysctl.d/99-docker.conf ]; then
+    if command -v sysctl >/dev/null 2>&1; then
+        echo "Applying system performance settings..."
+        sudo sysctl -p /etc/sysctl.d/99-docker.conf 2>/dev/null || echo "Note: Some sysctl settings may not apply in container environments"
+    else
+        echo "Sysctl not available. System settings will be applied on next boot."
+    fi
+fi
 
 # Create optimized Docker profiles script
 echo "Creating Docker optimization helper scripts..."
@@ -254,11 +286,19 @@ echo "  • Use 'docker-speedup slim <image>' to optimize image size"
 echo "  • Use 'docker-speedup prune' to clean up while preserving cache"
 echo "  • Run 'lazydocker' for a terminal Docker management UI"
 echo ""
-echo "⚠️  IMPORTANT: Log out and log back in to use Docker without sudo"
-if [ -n "$SUDO_USER" ]; then
-    echo "   (or run: newgrp docker as user '$SUDO_USER')"
+if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
+    echo "⚠️  CONTAINER ENVIRONMENT DETECTED:"
+    echo "   • Docker configuration files have been created"
+    echo "   • Service management is not available in containers"
+    echo "   • For Docker-in-Docker setups, consider using dind or sidecar patterns"
+    echo "   • Performance tools are installed and ready to use"
 else
-    echo "   (or run: newgrp docker)"
+    echo "⚠️  IMPORTANT: Log out and log back in to use Docker without sudo"
+    if [ -n "$SUDO_USER" ]; then
+        echo "   (or run: newgrp docker as user '$SUDO_USER')"
+    else
+        echo "   (or run: newgrp docker)"
+    fi
 fi
 echo ""
 echo "🔧 Configuration files:"
