@@ -44,6 +44,16 @@ sudo ./install-buildah-container.sh
 sudo ./build-jais2-with-buildah-root.sh -r myregistry.com/ -t v1.0 -n myjais-image
 ```
 
+**Hybrid Build (automatically chooses best tool):**
+```bash
+# Automatically detects environment and chooses optimal build tool
+./build-jais2-hybrid.sh
+
+# Force specific tool
+./build-jais2-hybrid.sh --force-docker    # Always use Docker
+./build-jais2-hybrid.sh --force-buildah   # Always try Buildah
+```
+
 ## 📋 Detailed Instructions
 
 ### Prerequisites
@@ -221,7 +231,34 @@ buildah pull docker-archive:/tmp/jais2-image.tar
    sudo ./install-buildah-container.sh
    ```
 
-3. **Authentication failed**
+3. **"Operation not permitted" - User namespace issues**
+   ```bash
+   # Best option: Use the hybrid build script (auto-detects best tool)
+   ./build-jais2-hybrid.sh
+   
+   # Or use the root/privileged build script
+   ./build-jais2-with-buildah-root.sh
+   
+   # Or force Docker usage
+   ./build-jais2-hybrid.sh --force-docker
+   ```
+
+4. **Container permission errors**
+   - Best solution: Use hybrid build which automatically handles this
+     ```bash
+     ./build-jais2-hybrid.sh
+     ```
+   - Or start your container with `--privileged` flag:
+     ```bash
+     docker run --privileged -v $(pwd):/workspace -w /workspace your-image
+     ```
+   - Or use specific capabilities:
+     ```bash
+     docker run --cap-add=SYS_ADMIN --device /dev/fuse \
+       -v $(pwd):/workspace -w /workspace your-image
+     ```
+
+5. **Authentication failed**
    ```bash
    ./buildah-registry-auth.sh status
    ./buildah-registry-auth.sh login docker.io

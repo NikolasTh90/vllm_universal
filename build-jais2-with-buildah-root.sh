@@ -141,7 +141,7 @@ build_image_root() {
         --file "$dockerfile"
         --tag "$FULL_IMAGE_NAME"
         --no-cache
-        --userns= host
+        --userns=host
         --isolation=chroot
         --runtime=runc
         --squash  # Reduce layer size
