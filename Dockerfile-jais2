@@ -1,0 +1,39 @@
+# Dockerfile-jais2
+FROM vllm/vllm-openai:latest
+
+# Install git and the full CUDA toolkit
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    cuda-toolkit-12-9 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Uninstall the standard packages to ensure a clean state
+RUN pip uninstall -y transformers vllm
+
+# --- Step 1: Install the vllm fork from its local cloned source ---
+# Clone the vllm repository to a temporary directory
+RUN git clone --branch jais2 --single-branch https://github.com/inceptionai-abudhabi/vllm.git /tmp/vllm-build
+# Set the working directory to the cloned vllm repo
+WORKDIR /tmp/vllm-build
+# Install vllm in editable mode
+RUN pip install -e .
+
+# --- Step 2: Install the transformers fork ---
+# Return to the root directory to avoid path issues
+WORKDIR /
+# Install the custom transformers fork AFTER vllm, as recommended by the documentation
+RUN pip install git+https://github.com/inceptionai-abudhabi/transformers.git
+
+# --- Standard vLLM setup ---
+# Create a standard mount point for the persistent volume
+RUN mkdir -p /root/.cache/huggingface
+
+# Copy our startup script into the container
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+# Set the script as the entrypoint
+ENTRYPOINT ["/start.sh"]
+
+# Expose the vLLM API port
+EXPOSE 8000
