@@ -150,23 +150,49 @@ fi
 # Start Docker if in container environment
 if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
     echo "Starting Docker daemon in container mode..."
-    if command -v start-docker-in-container >/dev/null 2>&1; then
-        start-docker-in-container --no-keepalive &
-        sleep 5
-    else
-        dockerd --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 &
-        sleep 5
-    fi
+    
+    # Create necessary directories
+    sudo mkdir -p /var/run /var/lib/docker
+    
+    # Start Docker daemon with TLS disabled and secure settings
+    dockerd \
+        --host=unix:///var/run/docker.sock \
+        --host=tcp://127.0.0.1:2375 \
+        --tls=false \
+        --tlsverify=false \
+        --storage-driver=overlay2 \
+        --exec-root=/var/run/docker \
+        --data-root=/var/lib/docker \
+        --iptables=false \
+        --ip-masq=false \
+        --bridge=none \
+        --pidfile=/var/run/docker.pid \
+        --userland-proxy=false \
+        --live-restore \
+        --log-level=warn > /dev/null 2>&1 &
+    
+    DOCKER_PID=$!
+    echo "Docker daemon started with PID: $DOCKER_PID"
     
     # Wait for Docker to be ready
     echo "Waiting for Docker to be ready..."
-    for i in {1..30}; do
+    for i in {1..60}; do
         if docker version >/dev/null 2>&1; then
-            echo "Docker is ready!"
+            echo "✅ Docker is ready!"
             break
+        fi
+        if [ $i -eq 30 ]; then
+            echo "⚠️  Still waiting for Docker to start..."
         fi
         sleep 1
     done
+    
+    # Check if Docker is actually ready
+    if ! docker version >/dev/null 2>&1; then
+        echo "❌ Docker failed to start properly"
+        kill $DOCKER_PID 2>/dev/null
+        exit 1
+    fi
 fi
 
 # Enable BuildKit for performance
