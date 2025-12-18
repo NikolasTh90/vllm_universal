@@ -58,7 +58,30 @@ if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "$KUBERNETES_SERVICE_
         --bridge=none \
         --log-level=warn > /tmp/dockerd.log 2>&1 &
     
-    echo "🚀 Docker daemon started. Building immediately..."
+    echo "🚀 Docker daemon started. Waiting briefly for socket..."
+    
+    # Wait specifically for the socket to be created
+    for i in {1..10}; do
+        if [ -S /var/run/docker.sock ]; then
+            echo "✅ Docker socket created!"
+            break
+        fi
+        echo "⏳ Waiting for Docker socket... ($i/10)"
+        sleep 1
+    done
+    
+    # Test Docker connection
+    echo "🔍 Testing Docker connection..."
+    for i in {1..20}; do
+        if sudo docker version >/dev/null 2>&1; then
+            echo "✅ Docker is ready!"
+            break
+        fi
+        if [ $i -eq 10 ]; then
+            echo "⚠️  Docker taking longer than expected..."
+        fi
+        sleep 1
+    done
     
     # Set DOCKER_HOST for the build
     export DOCKER_HOST="unix:///var/run/docker.sock"
@@ -76,12 +99,24 @@ echo "📦 Image: $FULL_IMAGE_NAME"
 echo ""
 
 # Build immediately without waiting loop
-docker build \
-    --file "Dockerfile-jais2" \
-    --tag "$FULL_IMAGE_NAME" \
-    --build-arg BUILDKIT_INLINE_CACHE=1 \
-    --progress=plain \
-    .
+echo "🔨 Starting build command..."
+if [ "$EUID" -eq 0 ] || [ -f /.dockerenv ]; then
+    # Run as root or in container
+    sudo docker build \
+        --file "Dockerfile-jais2" \
+        --tag "$FULL_IMAGE_NAME" \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        --progress=plain \
+        .
+else
+    # Run as regular user
+    docker build \
+        --file "Dockerfile-jais2" \
+        --tag "$FULL_IMAGE_NAME" \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        --progress=plain \
+        .
+fi
 
 echo ""
 echo "✅ Build completed: $FULL_IMAGE_NAME"
@@ -89,13 +124,13 @@ echo "✅ Build completed: $FULL_IMAGE_NAME"
 # Show image info
 echo ""
 echo "📊 Image Information:"
-docker images "$FULL_IMAGE_NAME" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+sudo docker images "$FULL_IMAGE_NAME" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
 
 # Push if registry is configured
 if [[ "$FULL_IMAGE_NAME" == */* ]]; then
     echo ""
     echo "🚀 Pushing to registry..."
-    docker push "$FULL_IMAGE_NAME"
+    sudo docker push "$FULL_IMAGE_NAME"
     echo "✅ Push completed: $FULL_IMAGE_NAME"
 else
     echo ""
