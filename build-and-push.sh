@@ -10,7 +10,7 @@ echo "Docker Build and Push with Performance Optimization"
 echo "============================================"
 
 # Configuration
-REGISTRY="${DOCKER_REGISTRY:-}"
+REGISTRY="${DOCKER_REGISTRY:-nikolasth90/}"
 IMAGE_NAME="${IMAGE_NAME:-vllm-universal}"
 TAG="${TAG:-latest}"
 
@@ -19,6 +19,109 @@ DOCKERFILES=(
     "Dockerfile:standard"
     "Dockerfile-jais2:jais2"
 )
+
+# Allow command line override for single Dockerfile build
+if [ $# -gt 0 ]; then
+    case "$1" in
+        "-f"|"--file")
+            if [ $# -gt 1 ]; then
+                CUSTOM_DOCKERFILE="$2"
+                shift 2
+            fi
+            ;;
+        "-t"|"--tag")
+            if [ $# -gt 1 ]; then
+                CUSTOM_TAG="$2"
+                shift 2
+            fi
+            ;;
+        "help"|"-h"|"--help")
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -f, --file Dockerfile    Specify custom Dockerfile (default: auto-detect)"
+            echo "  -t, --tag TAG           Specify custom tag (default: latest)"
+            echo "  -jais2                  Build only JAIS2 variant"
+            echo "  -standard               Build only standard variant"
+            echo "  help, -h, --help        Show this help"
+            echo ""
+            echo "Environment Variables:"
+            echo "  DOCKER_REGISTRY         Registry prefix (default: nikolasth90/)"
+            echo "  IMAGE_NAME              Base image name (default: vllm-universal)"
+            echo "  TAG                     Tag suffix (default: latest)"
+            echo ""
+            echo "Examples:"
+            echo "  $0                      # Build all variants"
+            echo "  $0 -jais2              # Build only JAIS2 variant"
+            echo "  $0 -standard           # Build only standard variant"
+            echo "  $0 -f Dockerfile-jais2 -t nikolasth90/vllm-universal:jais2"
+            echo "  DOCKER_REGISTRY=myreg/ $0  # Build for custom registry"
+            exit 0
+            ;;
+        "-jais2")
+            DOCKERFILES=("Dockerfile-jais2:jais2")
+            shift
+            ;;
+        "-standard")
+            DOCKERFILES=("Dockerfile:standard")
+            shift
+            ;;
+    esac
+    
+    # Handle custom Dockerfile and tag
+    if [ -n "$CUSTOM_DOCKERFILE" ] && [ -n "$CUSTOM_TAG" ]; then
+        echo "Building custom Dockerfile: $CUSTOM_DOCKERFILE with tag: $CUSTOM_TAG"
+        
+        # Install Docker if needed
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "Docker not found. Installing..."
+            if [ -f "./install-docker-container.sh" ]; then
+                sudo ./install-docker-container.sh
+            else
+                echo "ERROR: install-docker-container.sh not found"
+                exit 1
+            fi
+        fi
+        
+        # Start Docker if in container
+        if [ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "$KUBERNETES_SERVICE_HOST" ]; then
+            echo "Starting Docker daemon in container mode..."
+            dockerd --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 &
+            sleep 5
+            
+            for i in {1..30}; do
+                if docker version >/dev/null 2>&1; then
+                    break
+                fi
+                sleep 1
+            done
+        fi
+        
+        # Enable BuildKit
+        export DOCKER_BUILDKIT=1
+        export BUILDKIT_STEP_LOG_MAX_SIZE=10000000
+        export BUILDKIT_STEP_LOG_MAX_SPEED=100
+        
+        # Build the custom image
+        docker build \
+            --file "$CUSTOM_DOCKERFILE" \
+            --tag "$CUSTOM_TAG" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --progress=plain \
+            .
+            
+        echo "✅ Build completed: $CUSTOM_TAG"
+        
+        # Push if registry is detected in tag
+        if [[ "$CUSTOM_TAG" == */* ]]; then
+            echo "🚀 Pushing to registry..."
+            docker push "$CUSTOM_TAG"
+            echo "✅ Push completed: $CUSTOM_TAG"
+        fi
+        
+        exit 0
+    fi
+fi
 
 # Check if Docker is available
 if ! command -v docker >/dev/null 2>&1; then
