@@ -50,7 +50,15 @@ fi
 
 # Add current user to docker group
 echo "Adding current user to docker group..."
-sudo usermod -aG docker $USER
+if [ -n "$SUDO_USER" ]; then
+    sudo usermod -aG docker $SUDO_USER
+    echo "Added user '$SUDO_USER' to docker group"
+elif [ -n "$USER" ]; then
+    sudo usermod -aG docker $USER
+    echo "Added user '$USER' to docker group"
+else
+    echo "Warning: Could not determine username to add to docker group"
+fi
 
 # Configure Docker for optimal performance
 echo "Configuring Docker for optimal performance..."
@@ -128,21 +136,23 @@ echo "Installing additional performance optimization tools..."
 
 # Install dive for Docker image analysis
 echo "Installing dive for Docker image analysis..."
-sudo wget -O /usr/local/bin/dive https://github.com/wagoodman/dive/releases/download/v0.11.0/dive_0.11.0_linux_amd64.tar.gz
-sudo tar -xzf /usr/local/bin/dive -C /usr/local/bin --strip-components=1
+sudo wget -O /tmp/dive.tar.gz https://github.com/wagoodman/dive/releases/download/v0.11.0/dive_0.11.0_linux_amd64.tar.gz
+sudo tar -xzf /tmp/dive.tar.gz -C /tmp
+sudo cp /tmp/dive /usr/local/bin/
 sudo chmod +x /usr/local/bin/dive
+sudo rm -f /tmp/dive.tar.gz /tmp/dive
 
 # Install lazydocker for Docker management
 echo "Installing lazydocker for Docker management..."
-curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | sudo bash
 
 # Install DockerSlim for image optimization
 echo "Installing DockerSlim for image optimization..."
 if [ ! -f "/usr/local/bin/docker-slim" ]; then
     sudo wget -O /tmp/docker-slim.tar.gz https://github.com/docker-slim/docker-slim/releases/download/1.40.11/docker-slim_linux_1.40.11.tar.gz
     sudo tar -xzf /tmp/docker-slim.tar.gz -C /tmp
-    sudo cp /tmp/docker-slim-linux/* /usr/local/bin/
-    sudo chmod +x /usr/local/bin/docker-slim
+    sudo cp /tmp/docker-slim-linux/* /usr/local/bin/ 2>/dev/null || sudo cp /tmp/docker-slim /usr/local/bin/
+    sudo chmod +x /usr/local/bin/docker-slim*
     sudo rm -rf /tmp/docker-slim*
 fi
 
@@ -245,7 +255,11 @@ echo "  • Use 'docker-speedup prune' to clean up while preserving cache"
 echo "  • Run 'lazydocker' for a terminal Docker management UI"
 echo ""
 echo "⚠️  IMPORTANT: Log out and log back in to use Docker without sudo"
-echo "   (or run: newgrp docker)"
+if [ -n "$SUDO_USER" ]; then
+    echo "   (or run: newgrp docker as user '$SUDO_USER')"
+else
+    echo "   (or run: newgrp docker)"
+fi
 echo ""
 echo "🔧 Configuration files:"
 echo "  • Docker daemon: /etc/docker/daemon.json"
