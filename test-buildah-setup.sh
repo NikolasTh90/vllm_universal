@@ -129,7 +129,8 @@ run_test "podman" "command -v podman" "false"  # Optional
 run_test "apt-get" "command -v apt-get" "false"  # Optional, depends on distro
 
 # Test 5: Check our scripts
-check_file "./install-buildah-container.sh" "Buildah installation script" "true"
+check_file "./install-buildah-container.sh" "Container buildah installation script" "true"
+check_file "./install-buildah-ubuntu.sh" "Ubuntu buildah installation script" "true"
 check_file "./build-jais2-with-buildah.sh" "JAIS2 build script" "true"
 check_file "./buildah-registry-auth.sh" "Registry authentication script" "true"
 check_file "./Dockerfile-jais2" "JAIS2 Dockerfile" "true"
@@ -138,7 +139,7 @@ check_file "./BUILDAH-QUICK-START.md" "Documentation" "true"
 # Test 6: Check script permissions
 echo ""
 echo "🔍 Checking script permissions"
-for script in install-buildah-container.sh build-jais2-with-buildah.sh buildah-registry-auth.sh; do
+for script in install-buildah-container.sh install-buildah-ubuntu.sh build-jais2-with-buildah.sh buildah-registry-auth.sh; do
     if [ -x "$script" ]; then
         print_status "PASS" "$script is executable"
     else
@@ -225,14 +226,18 @@ if [ $failed_tests -eq 0 ]; then
     echo "🎉 All critical tests passed! You're ready to build JAIS2 with buildah."
     echo ""
     echo "🚀 Next steps:"
-    echo "1. Install buildah: sudo ./install-buildah-container.sh"
+    echo "1. Install buildah:"
+    echo "   • For Ubuntu 24.04: sudo ./install-buildah-ubuntu.sh"
+    echo "   • For containers: sudo ./install-buildah-container.sh"
     echo "2. Setup authentication: ./buildah-registry-auth.sh setup-dockerhub"
     echo "3. Build the image: ./build-jais2-with-buildah.sh"
 else
     echo "⚠️  Some critical components are missing. Please address the issues above."
     echo ""
     echo "🔧 To fix common issues:"
-    echo "1. Install buildah: sudo ./install-buildah-container.sh"
+    echo "1. Install buildah:"
+    echo "   • For Ubuntu 24.04: sudo ./install-buildah-ubuntu.sh"
+    echo "   • For containers: sudo ./install-buildah-container.sh"
     echo "2. Make scripts executable: chmod +x *.sh"
     echo "3. Ensure Dockerfile-jais2 exists"
 fi

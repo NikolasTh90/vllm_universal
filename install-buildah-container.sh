@@ -56,17 +56,30 @@ fi
 # Method 1: Try to install from OS repositories first
 echo "Attempting to install buildah from OS repositories..."
 if command -v apt-get >/dev/null 2>&1; then
-    # Add the containers repository
-    echo "Adding containers repository..."
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.opensuse.org/repositories/devel:/kubic:libcontainers:unstable/xUbuntu_22.04/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/libcontainers-unstable-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/libcontainers-unstable-keyring.gpg] https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/xUbuntu_22.04/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:unstable.list > /dev/null
+    # Set OS version for Ubuntu repositories
+    UBUNTU_VERSION=$(lsb_release -rs 2>/dev/null || echo "22.04")
     
-    sudo apt-get update
-    if sudo apt-get install -y buildah 2>/dev/null; then
-        echo "✅ Buildah installed from OS repositories"
+    # Try Ubuntu 24.04 repository first
+    echo "Adding containers repository for Ubuntu $UBUNTU_VERSION..."
+    sudo mkdir -p /etc/apt/keyrings
+    
+    # Try the Kubic/containers repo with proper Ubuntu version
+    REPO_URL="https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${UBUNTU_VERSION}"
+    KEY_URL="${REPO_URL}/Release.key"
+    
+    echo "Checking repository: $REPO_URL"
+    if curl -fsSL "$KEY_URL" | sudo gpg --dearmor -o /etc/apt/keyrings/libcontainers-stable-keyring.gpg; then
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/libcontainers-stable-keyring.gpg] $REPO_URL/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list > /dev/null
+        
+        sudo apt-get update
+        if sudo apt-get install -y buildah 2>/dev/null; then
+            echo "✅ Buildah installed from OS repositories"
+        else
+            echo "⚠️  OS repository installation failed, trying binary installation..."
+            METHOD_2_INSTALL=true
+        fi
     else
-        echo "⚠️  OS repository installation failed, trying binary installation..."
+        echo "⚠️  Failed to get repository key, trying binary installation..."
         METHOD_2_INSTALL=true
     fi
 else
@@ -79,15 +92,37 @@ if [ "${METHOD_2_INSTALL:-false}" = "true" ]; then
     BUILDAH_VERSION="1.38.0"
     
     # Download and install buildah
+    echo "Downloading Buildah v${BUILDAH_VERSION}..."
     sudo wget -O /tmp/buildah.tar.gz "https://github.com/containers/buildah/releases/download/v${BUILDAH_VERSION}/buildah-v${BUILDAH_VERSION}-linux-amd64.tar.gz"
-    sudo tar -xzf /tmp/buildah.tar.gz -C /tmp
-    sudo cp /tmp/buildah/bin/buildah /usr/local/bin/
-    sudo cp /tmp/buildah/bin/runc /usr/local/bin/ 2>/dev/null || true
-    sudo chmod +x /usr/local/bin/buildah
-    sudo chmod +x /usr/local/bin/runc 2>/dev/null || true
-    sudo rm -rf /tmp/buildah*
     
-    echo "✅ Buildah installed from binary"
+    if [ -f "/tmp/buildah.tar.gz" ]; then
+        sudo tar -xzf /tmp/buildah.tar.gz -C /tmp
+        sudo cp /tmp/buildah/bin/buildah /usr/local/bin/
+        sudo cp /tmp/buildah/bin/runc /usr/local/bin/ 2>/dev/null || true
+        sudo cp /tmp/buildah/bin/conmon /usr/local/bin/ 2>/dev/null || true
+        sudo chmod +x /usr/local/bin/buildah
+        sudo chmod +x /usr/local/bin/runc 2>/dev/null || true
+        sudo chmod +x /usr/local/bin/conmon 2>/dev/null || true
+        sudo rm -rf /tmp/buildah*
+        
+        echo "✅ Buildah installed from binary"
+    else
+        echo "❌ Failed to download buildah binary"
+        echo "Trying alternative installation method..."
+        
+        # Fallback: Try to install from Ubuntu 24.04 packages
+        echo "Attempting to install from Ubuntu packages..."
+        if sudo apt-get update && sudo apt-get install -y buildah 2>/dev/null; then
+            echo "✅ Buildah installed from Ubuntu packages"
+        else
+            echo "❌ All installation methods failed"
+            echo "Please install buildah manually:"
+            echo "  1. Visit https://github.com/containers/buildah/releases"
+            echo "  2. Download the latest linux-amd64 tarball"
+            echo "  3. Extract and copy buildah to /usr/local/bin/"
+            exit 1
+        fi
+    fi
 fi
 
 # Configure buildah for container environments
