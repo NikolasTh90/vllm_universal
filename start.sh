@@ -7,26 +7,24 @@ MODEL_NAME="${VLLM_MODEL_NAME:-mistralai/Mistral-7B-Instruct-v0.3}"
 
 # Build the command from environment variables.
 CMD="vllm serve ${MODEL_NAME}"
-CMD+=" --host ${VLLM_HOST:-0.0.0.0}"
-CMD+=" --port ${VLLM_PORT:-8000}"
-CMD+=" --tensor-parallel-size ${VLLM_TP_SIZE:-1}"
-CMD+=" --dtype ${VLLM_DTYPE:-auto}"
-CMD+=" --max-model-len ${VLLM_MAX_MODEL_LEN:-8192}"
-CMD+=" --max-num-seqs ${VLLM_MAX_NUM_SEQS:-256}"
-CMD+=" --gpu-memory-utilization ${VLLM_GPU_UTIL:-0.95}"
-CMD+=" --quantization ${VLLM_QUANTIZATION:-none}"
-CMD+=" --load-format ${VLLM_LOAD_FORMAT:-auto}"
+
+# Only add arguments if environment variables are populated
+[ -n "${VLLM_HOST:-}" ] && CMD+=" --host ${VLLM_HOST}"
+[ -n "${VLLM_PORT:-}" ] && CMD+=" --port ${VLLM_PORT}"
+[ -n "${VLLM_TP_SIZE:-}" ] && CMD+=" --tensor-parallel-size ${VLLM_TP_SIZE}"
+[ -n "${VLLM_DTYPE:-}" ] && CMD+=" --dtype ${VLLM_DTYPE}"
+[ -n "${VLLM_MAX_MODEL_LEN:-}" ] && CMD+=" --max-model-len ${VLLM_MAX_MODEL_LEN}"
+[ -n "${VLLM_MAX_NUM_SEQS:-}" ] && CMD+=" --max-num-seqs ${VLLM_MAX_NUM_SEQS}"
+[ -n "${VLLM_GPU_UTIL:-}" ] && CMD+=" --gpu-memory-utilization ${VLLM_GPU_UTIL}"
+[ -n "${VLLM_QUANTIZATION:-}" ] && CMD+=" --quantization ${VLLM_QUANTIZATION}"
+[ -n "${VLLM_LOAD_FORMAT:-}" ] && CMD+=" --load-format ${VLLM_LOAD_FORMAT}"
 # VLLM_API_KEY is read automatically by vLLM, not passed as an argument.
-CMD+=" --served-model-name ${VLLM_SERVED_NAME:-${MODEL_NAME}}"
-CMD+=" --swap-space ${VLLM_SWAP_SPACE:-4}"
+[ -n "${VLLM_SERVED_NAME:-}" ] && CMD+=" --served-model-name ${VLLM_SERVED_NAME}"
+[ -n "${VLLM_SERVED_NAME:-}" ] || CMD+=" --served-model-name ${MODEL_NAME}"
+[ -n "${VLLM_SWAP_SPACE:-}" ] && CMD+=" --swap-space ${VLLM_SWAP_SPACE}"
 
-# Conditionally add the --enforce-eager flag if VLLM_EXTRA_ARGS is not set.
-if [ -z "${VLLM_EXTRA_ARGS}" ]; then
-  CMD+=" --enforce-eager"
-fi
-
-# Add any extra arguments at the end.
-CMD+=" ${VLLM_EXTRA_ARGS}"
+# Add any extra arguments at the end if populated.
+[ -n "${VLLM_EXTRA_ARGS:-}" ] && CMD+=" ${VLLM_EXTRA_ARGS}"
 
 # Execute the final command.
 echo "------------------------------------"

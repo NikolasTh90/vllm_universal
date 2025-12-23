@@ -1,0 +1,34 @@
+# Optimized Dockerfile-jais2 for Blackwell (sm_120) architecture support
+FROM vllm/vllm-openai:latest
+
+# Install git and the full CUDA toolkit 12.9+ for Blackwell support
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+# Uninstall the standard packages to ensure a clean state
+RUN pip uninstall -y transformers || true
+
+# After cloning, check if setup.py exists and install properly
+RUN git clone -b jais2 https://github.com/inceptionai-abudhabi/transformers.git /transformers && \
+    cd /transformers && \
+    ls -la && \
+    pip install -e .
+
+
+WORKDIR /
+# --- Standard vLLM setup ---
+# Create a standard mount point for the persistent volume
+RUN mkdir -p /root/.cache/huggingface
+
+# Copy our startup script into the container
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+# Set the script as the entrypoint
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["/start.sh"]
+# Expose the vLLM API port
+EXPOSE 8000

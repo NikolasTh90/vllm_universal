@@ -1,16 +1,28 @@
-# Optimized Dockerfile-jais2 for reduced memory usage and faster builds
+# Optimized Dockerfile-jais2 for Blackwell (sm_120) architecture support
 FROM vllm/vllm-openai:latest
 
-# Set environment variables for pip optimization
-ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+# Set environment variables for pip optimization and CUDA architecture
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
-    pip_cache_dir=/tmp/pip-cache
+    pip_cache_dir=/tmp/pip-cache \
+    TORCH_CUDA_ARCH_LIST="12.0" \
+    CUDA_ARCHITECTURES="120" \
+    CUDA_VISIBLE_DEVICES="0" \
+    NVIDIA_VISIBLE_DEVICES="all" \
+    NVIDIA_DRIVER_CAPABILITIES="compute,utility" \
+    CUDACXX="/usr/local/cuda/bin/nvcc" \
+    CUDA_HOME="/usr/local/cuda"
+
+# Set compiler flags for Blackwell architecture compilation
+ENV NVCC_FLAGS="-gencode arch=compute_120,code=sm_120" \
+    TORCH_CUDA_ARCH="12.0" \
+    FORCE_CUDA="1" \
+    CUDA_MODULE_LOADING="LAZY"
 
 # Create pip cache directory with proper permissions
 RUN mkdir -p ${pip_cache_dir} && chmod 755 ${pip_cache_dir}
 
-# Install git and the full CUDA toolkit in a single layer with cleanup
+# Install git and the full CUDA toolkit 12.9+ for Blackwell support
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     cuda-toolkit-12-9 \
@@ -26,11 +38,10 @@ RUN mkdir -p ~/.pip && \
     echo "no-cache-dir = false" >> ~/.pip/pip.conf && \
     echo "disable-pip-version-check = true" >> ~/.pip/pip.conf
 
-# Uninstall the standard packages to ensure a clean state with cleanup
-RUN pip uninstall -y transformers vllm && \
-    pip cache purge
+# Uninstall the standard packages to ensure a clean state
+RUN pip uninstall -y transformers vllm || true
 
-# --- Step 1: Install the vllm fork from its local cloned source ---
+# --- Step 2: Install the vllm fork from its local cloned source ---
 # Clone the vllm repository to a temporary directory with shallow history
 RUN git clone --depth 1 --branch jais2 --single-branch \
     https://github.com/inceptionai-abudhabi/vllm.git /tmp/vllm-build
@@ -38,24 +49,37 @@ RUN git clone --depth 1 --branch jais2 --single-branch \
 # Set the working directory to the cloned vllm repo
 WORKDIR /tmp/vllm-build
 
-# Install vllm in editable mode with optimized pip settings
-RUN pip install --no-cache-dir --timeout 300 --retries 3 \
-    --cache-dir ${pip_cache_dir} -e . && \
-    pip cache purge && \
+# Install vllm in editable mode with Blackwell architecture support
+# Optimized for 55GB RAM environment with 7 parallel jobs
+RUN MAX_JOBS=2 \
+    FORCE_CUDA=1 \
+    TORCH_CUDA_ARCH_LIST="12.0" \
+    TORCH_NVCC_FLAGS="-gencode arch=compute_120,code=sm_120" \
+    CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release -DCUDA_ARCHITECTURES=120" \
+    pip install --no-cache-dir --timeout 600 --retries 5 \
+    --cache-dir ${pip_cache_dir} \
+    -e . \
+    --force-reinstall \
+    --no-deps && \
+    pip install --no-cache-dir --timeout 300 --retries 3 \
+    --cache-dir ${pip_cache_dir} \
+    -e .[dev] && \
     rm -rf /tmp/pip-cache/*
 
 # cleanup build artifacts
 RUN find . -name "*.pyc" -delete && \
     find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
-# --- Step 2: Install the transformers fork ---
+# --- Step 3: Install the transformersfork ---
 # Return to the root directory to avoid path issues
 WORKDIR /
 
 # Install the custom transformers fork AFTER vllm, with optimized settings
-RUN pip install --no-cache-dir --timeout 300 --retries 3 \
-    git+https://github.com/inceptionai-abudhabi/transformers.git && \
-    pip cache purge
+# After cloning, check if setup.py exists and install properly
+RUN git clone -b jais2 https://github.com/inceptionai-abudhabi/transformers.git /transformers && \
+    cd /transformers && \
+    ls -la && \
+    pip install -e .
 
 # --- Standard vLLM setup ---
 # Create a standard mount point for the persistent volume

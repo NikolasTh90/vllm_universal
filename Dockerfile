@@ -11,7 +11,10 @@ COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
 # Set the script as the entrypoint. This will run automatically when the container starts.
-ENTRYPOINT ["/start.sh"]
+
+# Set the script as the entrypoint
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["/start.sh"]
 
 # Expose the vLLM API port
 EXPOSE 8000

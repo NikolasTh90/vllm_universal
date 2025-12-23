@@ -1,0 +1,152 @@
+# Optimized Dockerfile-jais2 for Blackwell (sm_120) architecture support
+# Version: 2.0
+# Maintainer: AI Infrastructure Team
+# Description: vLLM with JAIS2 model support for Blackwell architecture
+
+# Use specific version tag for reproducibility
+ARG VLLM_VERSION=latest
+ARG CUDA_VERSION=12.9
+FROM vllm/vllm-openai:${VLLM_VERSION}
+
+# Build-time arguments for configurability
+ARG build_jobs=2
+ARG pip_cache_dir=/tmp/pip-cache
+ARG cuda_arch=120
+
+# Labels for metadata and container management
+LABEL version="2.0" \
+      description="vLLM with JAIS2 support for Blackwell" \
+      maintainer="AI Infrastructure Team" \
+      cuda.arch="${cuda_arch}" \
+      vllm.version="${VLLM_VERSION}"
+
+# Set environment variables for pip optimization and CUDA architecture
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_CACHE_DIR="${pip_cache_dir}" \
+    TORCH_CUDA_ARCH_LIST="${cuda_arch}.0" \
+    CUDA_ARCHITECTURES="${cuda_arch}" \
+    CUDA_VISIBLE_DEVICES="0" \
+    NVIDIA_VISIBLE_DEVICES="all" \
+    NVIDIA_DRIVER_CAPABILITIES="compute,utility" \
+    CUDACXX="/usr/local/cuda/bin/nvcc" \
+    CUDA_HOME="/usr/local/cuda"
+
+# Set compiler flags for Blackwell architecture compilation
+ENV NVCC_FLAGS="-gencode arch=compute_${cuda_arch},code=sm_${cuda_arch}" \
+    TORCH_CUDA_ARCH="${cuda_arch}.0" \
+    FORCE_CUDA="1" \
+    CUDA_MODULE_LOADING="LAZY"
+
+# Create non-root user for security
+RUN groupadd -r vllmuser && \
+    useradd -r -g vllmuser -d /app -s /bin/bash vllmuser
+
+# Create pip cache directory with proper permissions
+RUN mkdir -p ${PIP_CACHE_DIR} && \
+    chmod 700 ${PIP_CACHE_DIR}
+
+# Install system dependencies with cleanup
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    cuda-toolkit-${CUDA_VERSION} \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Configure pip with optimized settings
+RUN mkdir -p ~/.pip && \
+    echo "[global]" > ~/.pip/pip.conf && \
+    echo "cache-dir = ${PIP_CACHE_DIR}" >> ~/.pip/pip.conf && \
+    echo "no-cache-dir = false" >> ~/.pip/pip.conf && \
+    echo "disable-pip-version-check = true" >> ~/.pip/pip.conf && \
+    echo "timeout = 600" >> ~/.pip/pip.conf && \
+    echo "retries = 5" >> ~/.pip/pip.conf
+
+# Uninstall existing packages to ensure clean state
+RUN pip uninstall -y transformers vllm || true
+
+# Create application directory
+WORKDIR /app
+
+# Clone vLLM fork with shallow history for faster clone
+RUN git clone --depth 1 --branch jais2 --single-branch \
+    https://github.com/inceptionai-abudhabi/vllm.git /app/vllm-build
+
+WORKDIR /app/vllm-build
+
+# Install vLLM with build optimizations and error handling
+RUN MAX_JOBS=${build_jobs} \
+    FORCE_CUDA=1 \
+    TORCH_CUDA_ARCH_LIST="${cuda_arch}.0" \
+    TORCH_NVCC_FLAGS="-gencode arch=compute_${cuda_arch},code=sm_${cuda_arch}" \
+    CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release -DCUDA_ARCHITECTURES=${cuda_arch}" \
+    pip install --no-cache-dir --timeout 600 --retries 5 \
+    --cache-dir ${PIP_CACHE_DIR} \
+    -e . \
+    --force-reinstall \
+    --no-deps || (echo "vLLM installation failed" && exit 1)
+
+# Install vLLM development dependencies
+RUN pip install --no-cache-dir --timeout 300 --retries 3 \
+    --cache-dir ${PIP_CACHE_DIR} \
+    -e .[dev] || (echo "vLLM dev dependencies installation failed" && exit 1)
+
+# Cleanup build artifacts
+RUN find . -name "*.pyc" -delete && \
+    find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+
+# Clone transformers fork with shallow history
+WORKDIR /app
+RUN git clone --depth 1 --branch jais2 --single-branch \
+    https://github.com/inceptionai-abudhabi/transformers.git /app/transformers-build
+
+WORKDIR /app/transformers-build
+
+# Install transformers fork with error handling
+RUN pip install --no-cache-dir --timeout 300 --retries 3 \
+    --cache-dir ${PIP_CACHE_DIR} \
+    -e . || (echo "Transformers installation failed" && exit 1)
+
+# Cleanup pip cache to reduce image size
+RUN rm -rf ${PIP_CACHE_DIR}/*
+
+# Return to root directory
+WORKDIR /
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /root/.cache/huggingface /app/logs && \
+    chown -R vllmuser:vllmuser /app
+
+# Copy startup script with proper ownership
+COPY --chown=vllmuser:vllmuser start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Switch to non-root user
+USER vllmuser
+
+# Set working directory for application
+WORKDIR /app
+
+# Add health check for container monitoring
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Set the script as the entrypoint
+ENTRYPOINT ["/app/start.sh"]
+
+# Expose the vLLM API port
+EXPOSE 8000
+
+# Default environment variables
+ENV VLLM_HOST=0.0.0.0 \
+    VLLM_PORT=8000 \
+    VLLM_TP_SIZE=1 \
+    VLLM_DTYPE=auto \
+    VLLM_MAX_MODEL_LEN=8192 \
+    VLLM_MAX_NUM_SEQS=256 \
+    VLLM_GPU_UTIL=0.95 \
+    VLLM_QUANTIZATION=none \
+    VLLM_LOAD_FORMAT=auto \
+    VLLM_SWAP_SPACE=4

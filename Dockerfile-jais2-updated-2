@@ -1,0 +1,19 @@
+# Optimized Dockerfile-jais2 for Blackwell (sm_120) architecture support
+FROM vllm/vllm-openai:latest
+
+
+RUN apt update && apt install git -y
+
+RUN pip install --upgrade "git+https://github.com/inceptionai-abudhabi/transformers.git"
+RUN mkdir -p /root/.cache/huggingface
+
+# Copy our startup script into the container
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+# Set the script as the entrypoint
+ENTRYPOINT [ "tail", "-f", "/dev/null" ]
+#CMD ["/start.sh"]
+
+# Expose the vLLM API port
+EXPOSE 8000
