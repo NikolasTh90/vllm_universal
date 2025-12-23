@@ -90,7 +90,8 @@ COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
 # Set the script as the entrypoint
-ENTRYPOINT ["/start.sh"]
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["/start.sh"]
 
 # Expose the vLLM API port
 EXPOSE 8000
